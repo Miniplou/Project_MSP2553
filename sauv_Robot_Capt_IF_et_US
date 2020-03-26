@@ -1,0 +1,132 @@
+#include <msp430.h>
+#include "ADC.h"
+#include "Capt_US.h"
+
+
+int fin=0;
+int contCervoMot = 0;
+
+#define ECHO BIT5
+#define TRIGGER BIT4
+#define LEDV BIT6
+#define LEDR BIT0
+
+
+int miliseconds;
+long sensor;
+
+
+void init_ultrason(void){
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL = CALDCO_1MHZ;                     // submainclock 1mhz
+    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+
+    CCTL0 = CCIE;                             // CCR0 interrupt enabled
+    CCR0 = 1000;                  // 1ms at 1mhz
+    TACTL = TASSEL_2 + MC_1;                  // SMCLK, upmode
+
+    P1IFG  = 0x00;                //clear all interrupt flags
+    P1DIR |= LEDV;                            // P1.0 as output for LED
+    P1OUT &= ~LEDV;
+}
+
+
+int get_distance(void)
+{
+    P1IE &= ~LEDV;          // disable interupt
+    P1DIR |= TRIGGER;          // trigger pin as output
+    P1OUT |= TRIGGER;          // generate pulse
+    __delay_cycles(10);             // for 10us
+    P1OUT &= ~TRIGGER;                 // stop pulse
+    P1DIR &= ~ECHO;         // make pin P1.2 input (ECHO)
+    P1IFG = 0x00;                   // clear flag just in case anything happened before
+    P1IE |= ECHO;           // enable interupt on ECHO pin
+    P1IES &= ~ECHO;         // rising edge on ECHO pin
+    __delay_cycles(30000);          // delay for 30ms (after this time echo times out if there is no object detected)
+    return sensor;
+}
+
+void main(void)
+{
+    __enable_interrupt();
+    WDTCTL = WDTPW + WDTHOLD;
+    BCSCTL1= CALBC1_1MHZ; //frequence d’horloge 1kHz
+    DCOCTL= CALDCO_1MHZ; //
+
+    TA1CTL = TASSEL_2 | MC_1|TAIE; // source SMCLK pour TimerA (no 2), mode comptage Up
+    TA1CTL &=~ TAIFG;
+    TA1CCTL1 |= OUTMOD_7; // activation mode de sortie n°7
+    TA1CCTL2 |= OUTMOD_7;
+
+
+    /* mode entree sortie */
+    P1SEL &= ~(LEDV);
+    P1SEL2 &= ~(LEDV);
+    /* direction de la pine: sortie */
+    P1DIR |= LEDV;
+    /* led Verte eteinte par defaut */
+    P1OUT &=~ LEDV;
+
+    /* mode entree sortie */
+    P1SEL &= ~(LEDR);
+    P1SEL2 &= ~(LEDR);
+    /* dirrection de la pine : entree */
+    P1DIR &= ~(LEDR);
+    P1IE |= LEDR;
+    /* led rouge eteinte par defaut */
+    P1OUT &=~ LEDR;
+
+    init_ultrason();
+    ADC_init();
+
+    int distance_sol = 0;
+    int distance_mur = 0;
+
+    while (1)
+    {
+      ADC_Demarrer_conversion(0);
+      distance_sol = ADC_Lire_resultat ();
+      distance_mur = get_distance();
+
+      if (distance_mur < 850)
+          {
+           P1OUT |= LEDV;
+          }
+      else
+          {
+           P1OUT &= ~LEDV;
+          }
+    }
+}
+
+#pragma vector = PORT1_VECTOR
+__interrupt void Port_1()
+{
+
+    if(P1IFG&ECHO)  //is there interrupt pending?
+        {
+          if(!(P1IES&ECHO)) // is this the rising edge?
+          {
+            TACTL|=TACLR;   // clears timer A
+            miliseconds = 0;
+            P1IES |= ECHO;  //falling edge
+          }
+          else
+          {
+            sensor = (long)miliseconds*1000 + (long)TAR;    //calculating ECHO lenght
+
+          }
+        P1IFG &= ~ECHO;             //clear flag
+        }
+}
+
+
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A (void)
+{
+  miliseconds++;
+}
+
+
+
+

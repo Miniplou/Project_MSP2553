@@ -1,0 +1,46 @@
+#include <msp430.h>
+#include "ADC.h"
+
+
+void main(void)
+{
+    WDTCTL = WDTPW + WDTHOLD;
+
+    /* mode entree sortie */
+    P1SEL &= ~(BIT0);
+    P1SEL2 &= ~(BIT0);
+    /* dirrection de la pine : entree */
+    P1DIR &= ~(BIT0);
+
+
+    /* mode entree sortie */
+    P1SEL &= ~(BIT6);
+    P1SEL2 &= ~(BIT6);
+    /* direction de la pine: sortie */
+    P1DIR |= BIT6;
+
+    /* led verte eteinte par defaut */
+    P1OUT &=~ BIT6;
+
+    ADC_init();
+
+    int distance_sol = 0;
+    int autre = 0;
+
+    while (1)
+    {
+        ADC_Demarrer_conversion(0);
+        distance_sol = ADC_Lire_resultat ();
+
+        if (distance_sol < 550)
+            {
+             P1OUT |= BIT6;
+            }
+        else
+            {
+             P1OUT &= ~BIT6;
+            }
+    }
+
+}
+

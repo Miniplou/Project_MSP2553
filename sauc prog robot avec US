@@ -1,0 +1,232 @@
+#include <msp430.h>
+#include "Moove.h"
+#include "Capt_US.h"
+
+int fin=0;
+int contCervoMot = 0;
+
+#define ECHO BIT5
+
+#define TRIGGER BIT4
+
+#define LED BIT6
+
+int miliseconds;
+int distance;
+long sensor;
+
+
+void init_ultrason(void){
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL = CALDCO_1MHZ;                     // submainclock 1mhz
+    WDTCTL = WDTPW + WDTHOLD;                 // Stop WDT
+
+    CCTL0 = CCIE;                             // CCR0 interrupt enabled
+    CCR0 = 1000;                  // 1ms at 1mhz
+    TACTL = TASSEL_2 + MC_1;                  // SMCLK, upmode
+
+    P1IFG  = 0x00;                //clear all interrupt flags
+    P1DIR |= LED;                            // P1.0 as output for LED
+    P1OUT &= ~LED;
+}
+
+
+int get_distance(void)
+{
+    P1IE &= ~LED;          // disable interupt
+    P1DIR |= TRIGGER;          // trigger pin as output
+    P1OUT |= TRIGGER;          // generate pulse
+    __delay_cycles(10);             // for 10us
+    P1OUT &= ~TRIGGER;                 // stop pulse
+    P1DIR &= ~ECHO;         // make pin P1.2 input (ECHO)
+    P1IFG = 0x00;                   // clear flag just in case anything happened before
+    P1IE |= ECHO;           // enable interupt on ECHO pin
+    P1IES &= ~ECHO;         // rising edge on ECHO pin
+    __delay_cycles(30000);          // delay for 30ms (after this time echo times out if there is no object detected)
+    distance = sensor/58;           // converting ECHO lenght into cm
+    if(sensor > 750) {
+        P1OUT |= LED;  //turning LED on if distance is less than 20cm and if distance isn't 0.
+        return 1;
+    }
+    else {
+        P1OUT &= ~LED;
+        return 0;
+    }
+}
+
+void main(void)
+{
+    __enable_interrupt();
+    WDTCTL = WDTPW + WDTHOLD;
+    BCSCTL1= CALBC1_1MHZ; //frequence d’horloge 1kHz
+    DCOCTL= CALDCO_1MHZ; //
+
+    P2DIR &=~ (BIT0|BIT3); // entrées
+    P2DIR |= (BIT2|BIT4); //sorties
+    P2SEL |= (BIT2|BIT4); // selection fonction TA1.1
+    P2SEL2 &= ~(BIT2|BIT4); // selection fonction TA1.1
+    TA1CTL = TASSEL_2 | MC_1|TAIE; // source SMCLK pour TimerA (no 2), mode comptage Up
+    TA1CTL &=~ TAIFG;
+    TA1CCTL1 |= OUTMOD_7; // activation mode de sortie n°7
+    TA1CCTL2 |= OUTMOD_7;
+
+    P2IE |= BIT0|BIT3;
+    P2IES |= BIT0|BIT3;
+    P2IFG &=~ (BIT0|BIT3);
+
+    P1DIR |= BIT6;
+    P1OUT &=~ BIT6;
+
+    P1DIR |= BIT0;
+    P1IE |= BIT0;
+    P1OUT &=~ BIT0;
+
+    P1DIR &= ~(BIT3); // P1.3 input (button S2)
+    P1SEL &= ~(BIT3); // input on P1.3
+    P1SEL2 &= ~(BIT3);
+    P1REN |= (BIT3);
+    P1IN |= (BIT3);
+
+    P1IE |= BIT3;
+    P1IES |= BIT3;
+    P1IFG &= ~(BIT3);
+
+    init_ultrason();
+
+   // while(fin < 14725)//32sec
+    while (1)
+    {
+        /*
+       R_avancer();
+      P1OUT |= BIT0;
+      R_tourner_droite();
+      P1OUT &= ~(BIT0);*/
+      if ( 0 == get_distance())
+             R_tourner_droite();
+      else
+           R_avancer();
+    }
+    TA1CCR1 = 10;
+    TA1CCR2 = 10;
+}
+
+#pragma vector = PORT1_VECTOR
+__interrupt void Port_1()
+{
+
+    if    (BIT6 == (P1IFG && BIT6))
+    {
+   // P1OUT |= BIT6; // allumer la lampe verte pour signaler un Arret d'urgence
+       while(1)
+       { // arrete les roues
+           TA1CCR1 = 10;
+           TA1CCR2 = 10;
+       }
+    }
+    if    (BIT0 == (P1IFG && BIT0))
+       { // si c'est la lampe rouge qui a fait lever la flag, le redecendre (on veux juste qua le lampe s'alume)
+        //P1IFG &= ~(BIT0);
+       }
+    if(P1IFG&ECHO)  //is there interrupt pending?
+        {
+          if(!(P1IES&ECHO)) // is this the rising edge?
+          {
+            TACTL|=TACLR;   // clears timer A
+            miliseconds = 0;
+            P1IES |= ECHO;  //falling edge
+          }
+          else
+          {
+            sensor = (long)miliseconds*1000 + (long)TAR;    //calculating ECHO lenght
+
+          }
+        P1IFG &= ~ECHO;             //clear flag
+        }
+}
+
+
+
+
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer_A (void)
+{
+  miliseconds++;
+}
+
+#pragma vector = TIMER1_A1_VECTOR
+__interrupt void fin_compt(void){
+    fin++;
+    contCervoMot++;
+    if (contCervoMot >30)
+    {
+    TA1CTL &= ~TAIFG;
+    }
+}
+/*#include <msp430.h>
+#include "Moove.h"
+
+int fin=0;
+
+void main(void)
+{
+    __enable_interrupt();
+    WDTCTL = WDTPW + WDTHOLD;
+    BCSCTL1= CALBC1_1MHZ; //frequence d’horloge 1kHz
+    DCOCTL= CALDCO_1MHZ; //
+
+    P2DIR &=~ (BIT0|BIT3); // entrées
+    P2DIR |= (BIT2|BIT4); //sorties
+    P2SEL |= (BIT2|BIT4); // selection fonction TA1.1
+    P2SEL2 &= ~(BIT2|BIT4); // selection fonction TA1.1
+    TA1CTL = TASSEL_2 | MC_1|TAIE; // source SMCLK pour TimerA (no 2), mode comptage Up
+    TA1CTL &=~ TAIFG;
+    TA1CCTL1 |= OUTMOD_7; // activation mode de sortie n°7
+    TA1CCTL2 |= OUTMOD_7;
+
+    P2IE |= BIT0|BIT3;
+    P2IES |= BIT0|BIT3;
+    P2IFG &=~ (BIT0|BIT3);
+
+    P1DIR &=~ BIT3;
+    P1REN |= BIT3;
+    P1OUT &=~ BIT6;
+    P1DIR |= BIT6;
+
+
+    P1DIR &= ~(BIT3); // P1.3 input (button S2)
+    P1SEL &= ~(BIT3); // input on P1.3
+    P1SEL2 &= ~(BIT3);
+    P1REN |= (BIT3);
+    P1IN |= (BIT3);
+
+
+
+    P1IE |= BIT3;
+    P1IES |= BIT3;
+    P1IFG &=~ (BIT3);
+
+
+    while(fin < 14725)//32sec
+    {
+       R_avancer(2);
+       R_tourner_droite(1);
+    }
+    TA1CCR1 = 10;
+    TA1CCR2 = 10;
+}
+
+#pragma vector = PORT1_VECTOR
+__interrupt void Port_1()
+{       P1OUT |= BIT6;
+       while(1){
+           TA1CCR1 = 10;
+           TA1CCR2 = 10;
+       }
+}
+
+#pragma vector = TIMER1_A1_VECTOR
+__interrupt void fin_compt(void){
+    fin++;
+    TA1CTL &= ~TAIFG;
+}
+*/
