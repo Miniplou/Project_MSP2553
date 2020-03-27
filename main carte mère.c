@@ -34,7 +34,6 @@
 void init_BOARD( void );
 void init_UART( void );
 void init_USCI( void );
-void interpreteur( void );
 void envoi_msg_UART(unsigned char * );
 void Send_char_SPI( unsigned char );
 
